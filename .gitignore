@@ -3,3 +3,4 @@ debug
 .vscode
 main
 *.exe
+*.file
