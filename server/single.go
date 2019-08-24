@@ -10,32 +10,25 @@ import (
 )
 
 type singleFileServer struct {
-	// 连接
-	conn net.Conn
-	// 唯一id
-	uid string
-	// 分拆序号
-	idx int
-	// 该文件的大小
-	size int64
-	// 本地文件名
-	fn string
-	// 是否允许上传
-	allowed bool
-	// 总的文件服务
-	fs *fileServer
+	conn    net.Conn    // 连接
+	uid     string      // 唯一id
+	idx     int         // 分拆序号
+	size    int64       // 该文件的大小
+	fn      string      // 本地文件名
+	allowed bool        // 是否允许上传
+	fs      *fileServer // 总的文件服务
 }
 
-// upload 上传单个文件
-func (sfs *singleFileServer) upload() {
+// receive 接收单个文件
+func (sfs *singleFileServer) reveive() {
 	fs, ok := allfsGet(sfs.uid)
 	if !ok {
-		log.Printf("get file server error,uid:%s\n", sfs.uid)
+		log.Printf("获取总文件服务失败,uid:%s\n", sfs.uid)
 		return
 	}
 	ok = fs.add(sfs)
 	if !ok {
-		log.Printf("file index error, uid:%s,index:%d\n", sfs.uid, sfs.idx)
+		log.Printf("文件的序号错误, uid:%s,index:%d\n", sfs.uid, sfs.idx)
 		return
 	}
 	sfs.fs = fs
@@ -72,9 +65,9 @@ func (sfs *singleFileServer) receiveFile() {
 		return
 	}
 	// 打开文件，不存在时创建，存在时追加写
-	fp, err := os.OpenFile(sfs.fn, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0755)
+	fp, err := os.OpenFile(sfs.fn, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0766)
 	if err != nil {
-		log.Printf("open file error, %s\n", err)
+		log.Printf("打开文件失败, %s\n", err)
 		writeBufferTimeOut(sfs.conn, []byte("server exception"))
 		return
 	}
@@ -86,10 +79,10 @@ func (sfs *singleFileServer) receiveFile() {
 		buf, n, err = readBufferTimeOut(sfs.conn)
 		if err != nil {
 			if err == io.EOF {
-				log.Println("read EOF!")
+				log.Println("拆分文件上传读取EOF!")
 				break
 			}
-			log.Printf("conn read error, %s\n", err)
+			log.Printf("拆分文件上传读取错误, %s\n", err)
 			return
 		}
 		if len(buf) == 0 {
@@ -97,7 +90,7 @@ func (sfs *singleFileServer) receiveFile() {
 		}
 		_, err = fp.Write(buf[:n])
 		if err != nil {
-			log.Printf("write file error, %s\n", err)
+			log.Printf("拆分文件上传写入文件错误, %s\n", err)
 			writeBufferTimeOut(sfs.conn, []byte("server exception"))
 			return
 		}
@@ -110,13 +103,13 @@ func getFileSize(fn string) (int64, error) {
 	fInfo, err := os.Stat(fn)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Println("file size is 0")
+			log.Printf("%s大小是0", fn)
 			return 0, nil
 		}
-		log.Printf("get file size error, %s\n", err)
+		log.Printf("获取%s大小错误, %s\n", fn, err)
 		return 0, err
 	}
-	log.Printf("file size is %d\n", fInfo.Size())
+	log.Printf("%s大小是%d\n", fn, fInfo.Size())
 	return fInfo.Size(), nil
 }
 

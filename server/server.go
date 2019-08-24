@@ -4,7 +4,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"time"
 )
 
 const port = "10000"
@@ -14,20 +13,22 @@ func init() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 }
 
-func start() {
-	log.Println("server is starting")
+// Start 服务端启动方法
+func Start() {
+	log.Println("服务器启动中")
 	l, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
-		log.Fatalf("Can't listen to port %s, %s\n", port, err)
+		log.Fatalf("端口监听错误 %s, %s\n", port, err)
 	}
 	defer l.Close()
-	log.Println("waiting accept....")
+	log.Println("等待连接....")
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			log.Printf("accept error, %s\n", err)
+			log.Printf("连接失败, %s\n", err)
 			continue
 		}
+		log.Println("连接成功")
 		go serverDeal(conn)
 	}
 }
@@ -37,9 +38,10 @@ func serverDeal(conn net.Conn) {
 	defer conn.Close()
 	usr, ok := clientVerify(conn)
 	if !ok {
-		writeBufferTimeOut(conn, []byte("登陆失败"))
+		writeBufferTimeOut(conn, []byte("fail"))
 		return
 	}
+	writeBufferTimeOut(conn, []byte("success"))
 	buf, n, err := readBufferTimeOut(conn)
 	if err != nil {
 		return
@@ -58,13 +60,13 @@ func serverDeal(conn net.Conn) {
 			size: pint,
 			fn:   pstr,
 		}
-		fs.upload()
+		fs.receive()
 		break
 	case splitType:
 		// 验证用户是否正确
 		if !strings.HasPrefix(pstr, usr.name+"_") {
 			writeBufferTimeOut(conn, []byte("用户非法"))
-			log.Printf("usr invalid,usr:%s\n", usr.name)
+			log.Printf("用户非法,usr:%s\n", usr.name)
 			return
 		}
 		// 上传拆分的文件
@@ -74,10 +76,10 @@ func serverDeal(conn net.Conn) {
 			idx:     int(pint),
 			allowed: true,
 		}
-		sfs.upload()
+		sfs.reveive()
 		break
 	default:
-		log.Printf("op type error, %d\n", opType)
+		log.Printf("操作类型错误, %d\n", opType)
 		return
 	}
 }
@@ -98,16 +100,16 @@ func clientVerify(conn net.Conn) (*user, bool) {
 
 // readBufferTimeOut 从缓冲区读取字节，过期两秒
 func readBufferTimeOut(conn net.Conn) ([]byte, int, error) {
-	conn.SetReadDeadline(time.Now().Add(time.Second * 2))
+	// conn.SetReadDeadline(time.Now().Add(time.Second * 2))
 	return readBuffer(conn)
 }
 
 // readBuffer 从缓冲区读取字节
 func readBuffer(conn net.Conn) ([]byte, int, error) {
-	var buf = make([]byte, 100)
+	var buf = make([]byte, 1000)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Printf("fail to read from buffer, %s\n", err)
+		log.Printf("buffer读取错误, %s\n", err)
 		return nil, 0, err
 	}
 	return buf, n, nil
@@ -115,7 +117,7 @@ func readBuffer(conn net.Conn) ([]byte, int, error) {
 
 // writeBufferTimeOut 写数据到缓冲区，过期两秒
 func writeBufferTimeOut(conn net.Conn, content []byte) error {
-	conn.SetWriteDeadline(time.Now().Add(time.Second * 2))
+	// conn.SetWriteDeadline(time.Now().Add(time.Second * 2))
 	return writeBuffer(conn, content)
 }
 
@@ -123,7 +125,7 @@ func writeBufferTimeOut(conn net.Conn, content []byte) error {
 func writeBuffer(conn net.Conn, content []byte) error {
 	_, err := conn.Write(content)
 	if err != nil {
-		log.Printf("fail to write to buffer, content:%s, %s\n", string(content), err)
+		log.Printf("buffer写入错误, content:%s, %s\n", string(content), err)
 		return err
 	}
 	return nil

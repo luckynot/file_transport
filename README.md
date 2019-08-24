@@ -27,15 +27,21 @@ client->server:上传用户名和密码
 
     login {user_name} {password}
 
+server->client:返回登陆成功或者失败
+
+    fail
+
+    success
+
 ### 2、上传大文件请求
 
 client->server:上传文件名和文件大小
 
     big {file_name} {file_size}
 
-server->client:返回拆分文件个数和唯一id
+server->client:返回单个文件的大小和唯一id
 
-    {file_number} {unique_id}
+    {file_size} {unique_id}
 
 ### 3、上传拆分文件请求
 
@@ -47,17 +53,11 @@ server->client:续传位置
 
     {file_loc}
 
-### 4、暂停上传：客户端暂停上传文件，服务端关闭连接
+### 4、拆分文件上传成功，服务端校验是否所有拆分文件上传成功：如果所有文件上传成功，组装文件，并返回客户端成功标识；关闭连接
 
 client->server:
 
-    stop {unique_id} {file_index}
-
-### 5、拆分文件上传成功，服务端校验是否所有拆分文件上传成功：如果所有文件上传成功，组装文件，并返回客户端成功标识；关闭连接
-
-client->server:
-
-    end {unique_id} {file_index}
+    end {unique_id}
 
 server->client:
 

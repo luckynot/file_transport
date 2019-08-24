@@ -10,7 +10,6 @@ import (
 const (
 	bigType   = 1 // 大文件类型
 	splitType = 2 // 拆分文件类型
-	stopType  = 3 // 停止上传
 	endType   = 4 // 上传结束
 )
 
@@ -22,7 +21,7 @@ const (
 func analyzeOp(opStr string) (int, string, int64, error) {
 	opArr := strings.Split(opStr, " ")
 	if len(opArr) != 3 {
-		log.Printf("protocol is error, %s\n", opStr)
+		log.Printf("协议错误, %s\n", opStr)
 		return 0, "", 0, fmt.Errorf("protocol error")
 	}
 	var t int
@@ -33,19 +32,16 @@ func analyzeOp(opStr string) (int, string, int64, error) {
 	case "split":
 		t = splitType
 		break
-	case "stop":
-		t = stopType
-		break
 	case "end":
 		t = endType
 		break
 	default:
-		log.Printf("protocol is error, %s\n", opStr)
+		log.Printf("协议错误, %s\n", opStr)
 		return 0, "", 0, fmt.Errorf("protocol error")
 	}
 	pint, err := strconv.ParseInt(opArr[2], 10, 64)
 	if err != nil {
-		log.Printf("fail to convert str to integer, %s, %s\n", opArr[2], err)
+		log.Printf("协议错误, %s, %s\n", opArr[2], err)
 		return 0, "", 0, err
 	}
 	return t, opArr[1], pint, nil
@@ -57,7 +53,7 @@ func analyzeOp(opStr string) (int, string, int64, error) {
 func analyzeLogin(loginStr string) (string, string, error) {
 	loginArr := strings.Split(loginStr, " ")
 	if len(loginArr) != 3 || loginArr[0] != "login" {
-		log.Printf("protocol is error. %s\n", loginStr)
+		log.Printf("协议错误, %s\n", loginStr)
 		return "", "", fmt.Errorf("protocol error")
 	}
 	return loginArr[1], loginArr[2], nil

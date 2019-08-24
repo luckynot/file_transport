@@ -10,34 +10,29 @@ import (
 	"sync"
 )
 
-const singleMaxSize = int64(1024 * 1024)
+const singleMaxSize = int64(1024)
 
 type fileServer struct {
-	usr *user
-	// 唯一id
-	uid string
-	// 连接
-	conn net.Conn
-	// 文件大小
-	size int64
-	// 文件个数
-	num int
-	// 文件名
-	fn string
-	// 单个拆分文件处理服务
-	split []*singleFileServer
+	usr   *user               // 用户
+	uid   string              // 唯一id
+	conn  net.Conn            // 连接
+	size  int64               // 文件大小
+	num   int                 // 文件个数
+	fn    string              // 文件名
+	split []*singleFileServer // 单个拆分文件处理服务
 	mu    sync.Mutex
 }
 
-// upload 上传大文件
-func (fs *fileServer) upload() {
+// receive 接收大文件
+func (fs *fileServer) receive() {
 	// 生成唯一id
 	fs.genID()
 	// 存储fs
 	ok := allfsAdd(fs)
+	defer fs.stopAll()
 	// 防止用户多处登陆并发上传
 	if !ok {
-		log.Printf("store file server error,uid:%s\n", fs.uid)
+		log.Printf("建立文件上传服务失败,uid:%s\n", fs.uid)
 		return
 	}
 	// 计算文件拆分方案
@@ -69,10 +64,10 @@ func (fs *fileServer) calSplitNum() {
 
 // splitFile 回复客户端文件拆分方案
 func (fs *fileServer) sendSplit() error {
-	res := fmt.Sprintf("%d %s", fs.num, fs.uid)
+	res := fmt.Sprintf("%d %s", singleMaxSize, fs.uid)
 	err := writeBufferTimeOut(fs.conn, []byte(res))
 	if err != nil {
-		log.Println("write the scheme to client error")
+		log.Printf("发送文件拆分方案到客户端失败, uid:%s, err:%s\n", fs.uid, err)
 	}
 	return err
 }
@@ -88,49 +83,41 @@ func (fs *fileServer) listenOp() {
 				fs.stopAll()
 				return
 			}
-			log.Printf("listen opration from client fail, %s\n", buffer[:n])
+			log.Printf("监听客户端操作失败, uid:%s, err;%s\n", fs.uid, err)
 			errTime++
 			continue
 		}
 		op := string(buffer[:n])
-		opType, uid, fidx, err := analyzeOp(op)
+		opType, uid, _, err := analyzeOp(op)
 		if err != nil {
 			errTime++
 			continue
 		}
 		switch opType {
-		case stopType:
-			if uid != fs.uid {
-				log.Printf("[stop] uid invalid, %s\n", uid)
-				errTime++
-				continue
-			}
-			fs.stop(int(fidx))
-			break
 		case endType:
 			if uid != fs.uid {
-				log.Printf("[end] uid invalid, %s\n", uid)
+				log.Printf("结束上传uid错误, fs.uid:%s, uid:%s\n", fs.uid, uid)
 				errTime++
 				continue
 			}
-			ok := fs.end(int(fidx))
+			ok := fs.end()
 			if ok {
 				// 组装文件
 				if fs.assembFile() {
 					writeBufferTimeOut(fs.conn, []byte("success"))
 				} else {
-					writeBufferTimeOut(fs.conn, []byte("assemb error"))
+					writeBufferTimeOut(fs.conn, []byte("assemb fail"))
 				}
-				return
+			} else {
+				writeBufferTimeOut(fs.conn, []byte("fail"))
 			}
 			break
 		default:
-			log.Printf("op type invalid, %d\n", opType)
+			log.Printf("操作类型错误, %d\n", opType)
 			errTime++
 			continue
 		}
 	}
-	fs.stopAll()
 }
 
 // add 添加single file server
@@ -161,23 +148,16 @@ func (fs *fileServer) stopAll() {
 	}
 }
 
-// stop 停止单个拆分文件上传
-func (fs *fileServer) stop(idx int) {
+// end 文件上传结束
+func (fs *fileServer) end() bool {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	sfs := fs.split[idx]
-	fs.split[idx] = nil
-	sfs.stop()
-}
-
-// end 单个拆分文件上传结束
-func (fs *fileServer) end(idx int) bool {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	sfs := fs.split[idx]
-	if sfs != nil {
-		sfs.stop()
-		fs.split[idx] = nil
+	for i := 0; i < fs.num; i++ {
+		sfs := fs.split[i]
+		if sfs != nil {
+			sfs.stop()
+			fs.split[i] = nil
+		}
 	}
 	return fs.checkSuc()
 }
@@ -202,9 +182,9 @@ func (fs *fileServer) checkSuc() bool {
 // 不需要加锁，因为一个文件只会有一个fileServer
 func (fs *fileServer) assembFile() bool {
 	var fp *os.File
-	res, err := os.OpenFile(fs.uid, os.O_CREATE|os.O_WRONLY, 0755)
+	res, err := os.OpenFile(fs.uid, os.O_CREATE|os.O_WRONLY, 0766)
 	if err != nil {
-		log.Printf("assemb file error, uid:%s\n", fs.uid)
+		log.Printf("组装文件错误, uid:%s\n", fs.uid)
 		return false
 	}
 	defer res.Close()
@@ -216,9 +196,9 @@ func (fs *fileServer) assembFile() bool {
 		fns[i] = fmt.Sprintf("%s_%d", fs.uid, i)
 	}
 	for _, fn := range fns {
-		fp, err = os.OpenFile(fn, os.O_RDONLY, 0755)
+		fp, err = os.OpenFile(fn, os.O_RDONLY, 0766)
 		if err != nil {
-			log.Printf("assemb file error, uid:%s\n", fs.uid)
+			log.Printf("组装文件错误, uid:%s\n", fs.uid)
 			return false
 		}
 		defer fp.Close()
@@ -240,7 +220,7 @@ func (fs *fileServer) assembFile() bool {
 	// 合并成功后，删除拆分的文件
 	for _, fn := range fns {
 		if err := os.Remove(fn); err != nil {
-			log.Printf("remove file error, file name=%s\n", fn)
+			log.Printf("删除文件错误, file name=%s\n", fn)
 		}
 	}
 	return true
