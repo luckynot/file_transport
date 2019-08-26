@@ -44,6 +44,7 @@ func connServer() (net.Conn, error) {
 			time.Sleep(time.Second * 1)
 			continue
 		}
+		log.Printf("连接成功, remote:%s, local:%s\n", conn.RemoteAddr().String(), conn.LocalAddr().String())
 		return conn, nil
 	}
 	return nil, fmt.Errorf("连接超时")
@@ -77,12 +78,15 @@ func Upload(fn string) bool {
 		return false
 	}
 	fnum := cli.fileNum()
-	for !cli.endUpload() {
+	for {
+		cli.wg.Add(fnum)
 		for i := 0; i < fnum; i++ {
-			cli.wg.Add(1)
-			cli.uploadSplitFile(i)
+			go cli.uploadSplitFile(i)
 		}
 		cli.wg.Wait()
+		if cli.endUpload() {
+			break
+		}
 	}
 	return true
 }
@@ -136,6 +140,7 @@ func (cli *client) uploadSplitFile(idx int) {
 		return
 	}
 	offset := int64(idx)*cli.ssize + ctn
+	log.Printf("文件移动位置:%d, uid:%s, idx:%d\n", offset, cli.uid, idx)
 	if _, err = fp.Seek(offset, 0); err != nil {
 		log.Printf("移动文件指针失败,uid:%s, idx:%d, err:%s\n", cli.uid, idx, err)
 		return
@@ -143,7 +148,7 @@ func (cli *client) uploadSplitFile(idx int) {
 	// todo 从服务端获取续传位置
 	buf := make([]byte, 1024)
 	var n int
-	var totalSize int64
+	var totalSize = ctn
 	for totalSize < cli.ssize {
 		if n, err = fp.Read(buf); err != nil {
 			if err == io.EOF {
@@ -153,11 +158,15 @@ func (cli *client) uploadSplitFile(idx int) {
 			log.Printf("文件读取错误, uid:%s, idx:%d, err:%s\n", cli.uid, idx, err)
 			return
 		}
+		totalSize += int64(n)
+		// 文件读取超过了分拆文件的大小
+		if totalSize > cli.ssize {
+			n -= int(totalSize - cli.ssize)
+		}
 		if err = writeBufferTimeOut(conn, buf[:n]); err != nil {
 			log.Printf("写文件到net buffer错误, uid:%s, idx:%d, err:%s\n", cli.uid, idx, err)
 			return
 		}
-		totalSize += int64(n)
 	}
 }
 
@@ -195,5 +204,6 @@ func (cli *client) endUpload() bool {
 		return false
 	}
 	res := string(resB[:n])
+	log.Printf("发送结束信号，服务端返回结果:%s\n", res)
 	return res == "success"
 }
