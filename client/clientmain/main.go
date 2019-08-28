@@ -11,6 +11,9 @@ import (
 func main() {
 	err := ui.Main(func() {
 		var window = ui.NewWindow("文件上传", 800, 100, true)
+		serverlabel := ui.NewLabel("服务端地址:")
+		serverinput := ui.NewEntry()
+		serverinput.SetText("127.0.0.1:10000")
 		input := ui.NewEntry()
 		input.SetReadOnly(true)
 		open := ui.NewButton("打开文件")
@@ -20,13 +23,17 @@ func main() {
 		//------水平排列的容器
 		box1 := ui.NewHorizontalBox()
 		box2 := ui.NewHorizontalBox()
-		box1.Append(input, true)
-		box2.Append(open, true)
-		box2.Append(upload, true)
+		box3 := ui.NewHorizontalBox()
+		box1.Append(serverlabel, false)
+		box1.Append(serverinput, true)
+		box2.Append(input, true)
+		box3.Append(open, true)
+		box3.Append(upload, true)
 		//------垂直排列的容器---------
 		div := ui.NewVerticalBox()
 		div.Append(box1, true)
 		div.Append(box2, true)
+		div.Append(box3, true)
 
 		window.SetChild(div)
 		// 关闭窗口时退出
@@ -61,6 +68,7 @@ func main() {
 			box.Append(statLabel, true)
 			div.Append(box, true)
 			go uploadProgress(prochan, progressbar, statLabel)
+			client.ServerConn = serverinput.Text()
 			go client.Upload(input.Text(), prochan)
 		})
 		window.Show()
