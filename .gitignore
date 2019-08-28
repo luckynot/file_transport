@@ -4,3 +4,4 @@ debug
 main
 *.exe
 *.file
+server/servermain/upload

@@ -43,11 +43,14 @@ func init() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 }
 
+// ServerConn 服务端连接信息
+var ServerConn = "127.0.0.1:10000"
+
 // connServer 连接服务端
 func connServer() (net.Conn, error) {
 	errTime := 0
 	for errTime < 10 {
-		conn, err := net.DialTimeout("tcp", "127.0.0.1:10000", time.Second*3)
+		conn, err := net.DialTimeout("tcp", ServerConn, time.Second*3)
 		if err != nil {
 			log.Printf("连接服务器失败, %s\n", err)
 			errTime++
