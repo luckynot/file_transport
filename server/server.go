@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -54,6 +55,11 @@ func serverDeal(conn net.Conn) {
 	switch opType {
 	case bigType:
 		// 上传大文件
+		// 文件名格式错误
+		if strings.HasSuffix(pstr, "/") {
+			log.Printf("文件名格式错误,name:%s\n", pstr)
+			return
+		}
 		var fs = &fileServer{
 			usr:  usr,
 			conn: conn,
@@ -109,7 +115,9 @@ func readBuffer(conn net.Conn) ([]byte, int, error) {
 	var buf = make([]byte, 1000)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Printf("buffer读取错误, %s\n", err)
+		if err != io.EOF {
+			log.Printf("buffer读取错误, %s\n", err)
+		}
 		return nil, 0, err
 	}
 	return buf, n, nil

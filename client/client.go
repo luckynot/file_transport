@@ -8,24 +8,34 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
-	fileName    = "client.file"
 	defaultUser = "client"
 	defaultPw   = "12345"
+	// FileInfoErr 文件信息错误
+	FileInfoErr = -1
+	// ServerConErr 服务端连接异常
+	ServerConErr = -2
+	// LoginErr 登陆错误
+	LoginErr = -3
+	// SplitErr 拆分错误
+	SplitErr = -4
 )
 
 type client struct {
-	conn  net.Conn       // 连接
-	usr   string         // 用户名
-	pw    string         // 密码
-	uid   string         // 唯一id
-	fn    string         // 文件名
-	tsize int64          // 文件总大小
-	ssize int64          // 单个拆分文件大小
-	wg    sync.WaitGroup // 记录拆分文件上传协程
+	conn    net.Conn       // 连接
+	usr     string         // 用户名
+	pw      string         // 密码
+	uid     string         // 唯一id
+	fn      string         // 文件名
+	tsize   int64          // 文件总大小
+	ssize   int64          // 单个拆分文件大小
+	usize   int64          // 已上传大小
+	prochan chan int       //上传文件进度channel
+	wg      sync.WaitGroup // 记录拆分文件上传协程
 }
 
 func init() {
@@ -51,30 +61,35 @@ func connServer() (net.Conn, error) {
 }
 
 // Upload 上传文件
-func Upload(fn string) bool {
+func Upload(fn string, prochan chan int) bool {
 	// 获取文件大小
 	size, err := getFileSize(fn)
 	if err != nil || 0 == size {
+		prochan <- FileInfoErr
 		return false
 	}
 	conn, err := connServer()
 	if err != nil {
+		prochan <- ServerConErr
 		return false
 	}
 	defer conn.Close()
 	cli := &client{
-		conn:  conn,
-		usr:   defaultUser,
-		pw:    defaultPw,
-		fn:    fn,
-		tsize: size,
+		conn:    conn,
+		usr:     defaultUser,
+		pw:      defaultPw,
+		fn:      fn,
+		tsize:   size,
+		prochan: prochan,
 	}
 	ok, err := login(cli.conn, cli.usr, cli.pw)
 	if err != nil || !ok {
 		log.Printf("登陆失败, fn:%s\n", fn)
+		prochan <- LoginErr
 		return false
 	}
 	if err = cli.splitScheme(); err != nil {
+		prochan <- SplitErr
 		return false
 	}
 	fnum := cli.fileNum()
@@ -167,6 +182,7 @@ func (cli *client) uploadSplitFile(idx int) {
 			log.Printf("写文件到net buffer错误, uid:%s, idx:%d, err:%s\n", cli.uid, idx, err)
 			return
 		}
+		cli.refProgress(int64(n))
 	}
 }
 
@@ -182,12 +198,24 @@ func ctnLoc(conn net.Conn, uid string, idx int) (int64, error) {
 		log.Printf("获取文件续传位置失败, uid:%s, idx:%d, err:%s\n", uid, idx, err)
 		return 0, err
 	}
-	loc, err := strconv.ParseInt(string(locB[:n]), 10, 64)
+	locStr := string(locB[:n])
+	if locStr == "server exception" {
+		log.Printf("获取文件续传位置失败,服务端异常, uid:%s, idx:%d, err:%s\n", uid, idx, err)
+		return 0, fmt.Errorf("服务端异常")
+	}
+	loc, err := strconv.ParseInt(locStr, 10, 64)
 	if err != nil {
-		log.Printf("获取文件续传位置失败, uid:%s, idx:%d, loc:%s, err:%s\n", uid, idx, string(locB[:n]), err)
+		log.Printf("获取文件续传位置失败, uid:%s, idx:%d, loc:%s, err:%s\n", uid, idx, locStr, err)
 		return 0, err
 	}
 	return loc, nil
+}
+
+// refProgress 更新上传文件大小，刷新进度
+func (cli *client) refProgress(n int64) {
+	size := atomic.AddInt64(&cli.usize, n)
+	percent := (size * 100) / cli.tsize
+	cli.prochan <- int(percent)
 }
 
 // endUpload 客户端结束上传

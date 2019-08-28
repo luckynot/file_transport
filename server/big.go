@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -35,6 +36,11 @@ func (fs *fileServer) receive() {
 		log.Printf("建立文件上传服务失败,uid:%s\n", fs.uid)
 		return
 	}
+	// 创建文件夹
+	if err := os.MkdirAll(fs.dirName(), 0777); err != nil {
+		log.Printf("新建文件夹错误, err:%s\n", err)
+		return
+	}
 	// 计算文件拆分方案
 	fs.calSplitNum()
 	// 回复客户端文件拆分方案
@@ -49,6 +55,20 @@ func (fs *fileServer) receive() {
 // genId 生成这次上传的唯一id:远程地址_文件名
 func (fs *fileServer) genID() {
 	fs.uid = fmt.Sprintf("%s_%s", fs.usr.name, fs.fn)
+	fs.fn = strings.TrimPrefix(fs.fn, "/")
+	// 文件名为：./upload/{uid}/{file.name}
+	fs.fn = fmt.Sprintf("./upload/%s/%s", fs.usr.name, fs.fn)
+}
+
+// dirName 返回文件的临时文件夹名称
+func (fs *fileServer) dirName() string {
+	return fs.fn + "_temp"
+}
+
+// singlefilename 获取拆分文件文件名
+func (fs *fileServer) singlefilename(index int) string {
+	// 文件名为：./upload/{uid}/{file.name}_temp/{idx}
+	return fmt.Sprintf("%s/%d", fs.dirName(), index)
 }
 
 // calSplitNum 计算文件应该拆分的个数
@@ -166,10 +186,8 @@ func (fs *fileServer) end() bool {
 func (fs *fileServer) checkSuc() bool {
 	// 校验是否所有文件上传结束
 	var sum int64
-	var fn string
 	for i := 0; i < fs.num; i++ {
-		fn = fmt.Sprintf("%s_%d", fs.uid, i)
-		size, err := getFileSize(fn)
+		size, err := getFileSize(fs.singlefilename(i))
 		if err != nil {
 			continue
 		}
@@ -182,7 +200,7 @@ func (fs *fileServer) checkSuc() bool {
 // 不需要加锁，因为一个文件只会有一个fileServer
 func (fs *fileServer) assembFile() bool {
 	var fp *os.File
-	res, err := os.OpenFile(fs.uid, os.O_CREATE|os.O_WRONLY, 0766)
+	res, err := os.OpenFile(fs.fn, os.O_CREATE|os.O_WRONLY, 0766)
 	if err != nil {
 		log.Printf("组装文件错误, uid:%s\n", fs.uid)
 		return false
@@ -190,13 +208,8 @@ func (fs *fileServer) assembFile() bool {
 	defer res.Close()
 	bw := bufio.NewWriter(res)
 	buf := make([]byte, 1024)
-	// 解析文件名
-	var fns = make([]string, fs.num)
 	for i := 0; i < fs.num; i++ {
-		fns[i] = fmt.Sprintf("%s_%d", fs.uid, i)
-	}
-	for _, fn := range fns {
-		fp, err = os.OpenFile(fn, os.O_RDONLY, 0766)
+		fp, err = os.OpenFile(fs.singlefilename(i), os.O_RDONLY, 0766)
 		if err != nil {
 			log.Printf("组装文件错误, uid:%s\n", fs.uid)
 			return false
@@ -217,11 +230,9 @@ func (fs *fileServer) assembFile() bool {
 			return false
 		}
 	}
-	// 合并成功后，删除拆分的文件
-	for _, fn := range fns {
-		if err := os.Remove(fn); err != nil {
-			log.Printf("删除文件错误, file name=%s\n", fn)
-		}
+	// 合并成功后，删除文件夹和拆分的临时文件
+	if err = os.RemoveAll(fs.dirName()); err != nil {
+		log.Printf("删除文件错误, file name=%s\n", fs.fn+"_temp")
 	}
 	return true
 }

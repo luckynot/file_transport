@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strconv"
@@ -69,7 +70,9 @@ func readBuffer(conn net.Conn) ([]byte, int, error) {
 	var buf = make([]byte, 1000)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Printf("从buffer中读取错误, %s\n", err)
+		if err != io.EOF {
+			log.Printf("从buffer中读取错误, %s\n", err)
+		}
 		return nil, 0, err
 	}
 	return buf, n, nil

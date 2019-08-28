@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -39,7 +38,7 @@ func (sfs *singleFileServer) reveive() {
 
 // setName 设置拆分文件在本地存储的文件名
 func (sfs *singleFileServer) setName() {
-	sfs.fn = fmt.Sprintf("%s_%d", sfs.uid, sfs.idx)
+	sfs.fn = sfs.fs.singlefilename(sfs.idx)
 }
 
 // setSize 设置文件的大小
@@ -54,6 +53,14 @@ func (sfs *singleFileServer) setSize() {
 
 // receiveFile 接收文件
 func (sfs *singleFileServer) receiveFile() {
+	// 打开文件，不存在时创建，存在时追加写
+	fp, err := os.OpenFile(sfs.fn, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0766)
+	if err != nil {
+		log.Printf("打开文件失败, %s\n", err)
+		writeBufferTimeOut(sfs.conn, []byte("server exception"))
+		return
+	}
+	defer fp.Close()
 	size, err := getFileSize(sfs.fn)
 	if err != nil {
 		writeBufferTimeOut(sfs.conn, []byte("server exception"))
@@ -64,14 +71,6 @@ func (sfs *singleFileServer) receiveFile() {
 	if err != nil {
 		return
 	}
-	// 打开文件，不存在时创建，存在时追加写
-	fp, err := os.OpenFile(sfs.fn, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0766)
-	if err != nil {
-		log.Printf("打开文件失败, %s\n", err)
-		writeBufferTimeOut(sfs.conn, []byte("server exception"))
-		return
-	}
-	defer fp.Close()
 	var buf []byte
 	var n int
 	// 从buffer中读取数据，写入文件
