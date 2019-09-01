@@ -17,7 +17,7 @@ func init() {
 // Start 服务端启动方法
 func Start() {
 	log.Println("服务器启动中")
-	l, err := net.Listen("tcp", "127.0.0.1:"+port)
+	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatalf("端口监听错误 %s, %s\n", port, err)
 	}
